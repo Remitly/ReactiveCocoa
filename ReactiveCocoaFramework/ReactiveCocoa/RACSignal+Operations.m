@@ -7,6 +7,7 @@
 //
 
 #import "RACSignal+Operations.h"
+#import "EXTScope.h"
 #import "NSObject+RACDeallocating.h"
 #import "NSObject+RACDescription.h"
 #import "RACCommand.h"
@@ -629,18 +630,22 @@ static RACDisposable *subscribeForever (RACSignal *signal, void (^next)(id), voi
 
 	// Purposely not retaining 'object', since we want to tear down the binding
 	// when it deallocates normally.
-	__block void * volatile objectPtr = (__bridge void *)object;
+	@weakify(object);
 
 	RACDisposable *subscriptionDisposable = [self subscribeNext:^(id x) {
-		NSObject *object = (__bridge id)objectPtr;
+		@strongify(object);
+		if (!object) return;
+
 		[object setValue:x ?: nilValue forKeyPath:keyPath];
 	} error:^(NSError *error) {
-		NSObject *object = (__bridge id)objectPtr;
+		@strongify(object);
 
-		NSCAssert(NO, @"Received error from %@ in binding for key path \"%@\" on %@: %@", self, keyPath, object, error);
+		if (object) {
+			NSCAssert(NO, @"Received error from %@ in binding for key path \"%@\" on %@: %@", self, keyPath, object, error);
 
-		// Log the error if we're running with assertions disabled.
-		NSLog(@"Received error from %@ in binding for key path \"%@\" on %@: %@", self, keyPath, object, error);
+			// Log the error if we're running with assertions disabled.
+			NSLog(@"Received error from %@ in binding for key path \"%@\" on %@: %@", self, keyPath, object, error);
+		}
 
 		[disposable dispose];
 	} completed:^{
@@ -674,13 +679,6 @@ static RACDisposable *subscribeForever (RACSignal *signal, void (^next)(id), voi
 			[bindings removeObjectForKey:keyPath];
 		}
 		#endif
-
-		while (YES) {
-			void *ptr = objectPtr;
-			if (OSAtomicCompareAndSwapPtrBarrier(ptr, NULL, &objectPtr)) {
-				break;
-			}
-		}
 	}];
 
 	[disposable addDisposable:clearPointerDisposable];
